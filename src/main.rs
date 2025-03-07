@@ -1,13 +1,13 @@
-use std::io::{self, Write};
 use std::{
-    net::{IpAddr, TcpStream},
+    net::IpAddr,
     sync::mpsc::{channel, Sender},
     thread,
 };
 
 use clap::Parser;
+use services::scanner::Scanner;
 
-const MAX: u16 = 65535; // max number of ports
+mod services;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -15,32 +15,22 @@ struct Args {
     ip_addr: IpAddr,
 }
 
-fn scan(ip_addr: IpAddr, start_port: u16, num_threads: u16, tx: Sender<u16>) {
-    let mut port: u16 = start_port + 1; // starting from port 1
-    loop {
-        if TcpStream::connect((ip_addr, port)).is_ok() {
-            print!("."); // indicates a connection
-            io::stdout().flush().unwrap();
-            tx.send(port).unwrap();
-        }
-
-        if (MAX - port) <= num_threads {
-            break;
-        }
-        port += num_threads;
-    }
-}
-
 fn main() {
     let args: Args = Args::parse();
-    let num_threads: u16 = 4;
 
     let (tx, rx) = channel();
 
-    for i in 0..num_threads {
+    let new_scanner: Scanner = Scanner::new(args.ip_addr);
+
+    let threads = new_scanner.threads;
+
+    for i in 0..threads {
+        let new_scanner = new_scanner.clone();
         let tx: Sender<u16> = tx.clone();
 
-        thread::spawn(move || scan(args.ip_addr, i, num_threads, tx));
+        thread::spawn(move || {
+            new_scanner.scan(i, tx);
+        });
     }
 
     drop(tx); // drop transmitter from main thread
