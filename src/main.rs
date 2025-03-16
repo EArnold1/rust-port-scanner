@@ -1,47 +1,37 @@
-use std::{
-    net::IpAddr,
-    sync::mpsc::{channel, Sender},
-    thread,
+use std::sync::{
+    mpsc::{channel, Sender},
+    Arc,
 };
 
 use clap::Parser;
-use services::scanner::Scanner;
+use services::{args::Args, scanner::Scanner, worker_pool::WorkerPool};
 
 mod services;
-
-#[derive(Parser, Debug)]
-struct Args {
-    /// Ip address
-    ip_addr: IpAddr,
-
-    /// Start of the range.
-    #[arg(short = 's', long, default_value_t = 1)]
-    start_port: u16,
-
-    /// End of the range of ports to scan (inclusive).
-    #[arg(short = 'e', long, default_value_t = 65535)]
-    end_port: u16,
-
-    /// Number of threads to use.
-    #[arg(short = 't', long, default_value_t = 4)]
-    threads: u16,
-}
 
 fn main() {
     let args: Args = Args::parse();
 
+    let Args {
+        end_port,
+        start_port,
+        threads,
+        ip_addr,
+    } = args;
+
     let (tx, rx) = channel();
 
-    let new_scanner: Scanner = Scanner::new(args.ip_addr, args.threads, args.end_port);
+    let scanner: Scanner = Scanner::new(ip_addr, threads, end_port, start_port);
 
-    let threads = new_scanner.threads;
+    let pool: WorkerPool = WorkerPool::new(scanner.threads);
 
-    for i in 0..threads {
-        let new_scanner = new_scanner.clone();
+    let scanner: Arc<Scanner> = Arc::new(scanner); // for shared ownership
+
+    for port in scanner.start_port..=scanner.end_port {
         let tx: Sender<u16> = tx.clone();
+        let scanner: Arc<Scanner> = Arc::clone(&scanner);
 
-        thread::spawn(move || {
-            new_scanner.scan(i, tx);
+        pool.execute(move || {
+            scanner.scan(port, tx);
         });
     }
 
