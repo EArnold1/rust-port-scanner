@@ -1,46 +1,38 @@
-use std::io::{self, Write};
-use std::{
-    net::{IpAddr, TcpStream},
-    sync::mpsc::{channel, Sender},
-    thread,
+use std::sync::{
+    mpsc::{channel, Sender},
+    Arc,
 };
 
 use clap::Parser;
+use services::{args::Args, scanner::Scanner, worker_pool::WorkerPool};
 
-const MAX: u16 = 65535; // max number of ports
-
-#[derive(Parser, Debug)]
-struct Args {
-    /// Ip address
-    ip_addr: IpAddr,
-}
-
-fn scan(ip_addr: IpAddr, start_port: u16, num_threads: u16, tx: Sender<u16>) {
-    let mut port: u16 = start_port + 1; // starting from port 1
-    loop {
-        if TcpStream::connect((ip_addr, port)).is_ok() {
-            print!("."); // indicates a connection
-            io::stdout().flush().unwrap();
-            tx.send(port).unwrap();
-        }
-
-        if (MAX - port) <= num_threads {
-            break;
-        }
-        port += num_threads;
-    }
-}
+mod services;
 
 fn main() {
     let args: Args = Args::parse();
-    let num_threads: u16 = 4;
+
+    let Args {
+        end_port,
+        start_port,
+        threads,
+        ip_addr,
+    } = args;
 
     let (tx, rx) = channel();
 
-    for i in 0..num_threads {
-        let tx: Sender<u16> = tx.clone();
+    let scanner: Scanner = Scanner::new(ip_addr, threads, end_port, start_port);
 
-        thread::spawn(move || scan(args.ip_addr, i, num_threads, tx));
+    let pool: WorkerPool = WorkerPool::new(scanner.threads);
+
+    let scanner: Arc<Scanner> = Arc::new(scanner); // for shared ownership
+
+    for port in scanner.start_port..=scanner.end_port {
+        let tx: Sender<u16> = tx.clone();
+        let scanner: Arc<Scanner> = Arc::clone(&scanner);
+
+        pool.execute(move || {
+            scanner.scan(port, tx);
+        });
     }
 
     drop(tx); // drop transmitter from main thread
@@ -53,7 +45,7 @@ fn main() {
 
     open_ports.sort();
 
-    println!("\n"); // to format output
+    println!("\n"); // for output display
 
     for port in open_ports {
         println!("PORT: {port} is open")
