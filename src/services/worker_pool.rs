@@ -47,19 +47,23 @@ impl WorkerPool {
         F: FnOnce() + Send + 'static,
     {
         let job = Box::new(f);
-        self.sender.send(Message::NewJob(job)).unwrap()
+        self.sender
+            .send(Message::NewJob(job))
+            .expect("should send job")
     }
 }
 
 impl Drop for WorkerPool {
     fn drop(&mut self) {
         for _ in &self.workers {
-            self.sender.send(Message::Terminate).unwrap()
+            self.sender
+                .send(Message::Terminate)
+                .expect("sender should send terminate message")
         }
 
         for worker in &mut self.workers {
             if let Some(thread) = worker.thread.take() {
-                thread.join().unwrap();
+                thread.join().expect("error from thread");
             }
         }
     }
@@ -71,7 +75,11 @@ struct Worker {
 impl Worker {
     fn new(receiver: Arc<Mutex<mpsc::Receiver<Message>>>) -> Worker {
         let thread: thread::JoinHandle<()> = thread::spawn(move || loop {
-            let message: Message = receiver.lock().unwrap().recv().unwrap();
+            let message: Message = receiver
+                .lock()
+                .expect("should get lock on receiver")
+                .recv()
+                .expect("should get value from receiver");
 
             match message {
                 Message::NewJob(job) => {

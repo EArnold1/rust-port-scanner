@@ -24,8 +24,8 @@ impl Scanner {
     pub fn scan(&self, port: u16, tx: Sender<u16>) {
         if TcpStream::connect((self.ip_addr, port)).is_ok() {
             print!("."); // indicates a connection
-            io::stdout().flush().unwrap();
-            tx.send(port).unwrap();
+            io::stdout().flush().expect("stdout should flush");
+            tx.send(port).expect("transmitter should send");
         }
     }
 }
